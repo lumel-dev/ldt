@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+# Shim POSIX (bash, zsh, sh, fish llaman a esto igual). El de Windows es ldt.cmd.
+#
+# Nada de `readlink -f`: el readlink de BSD/macOS no lo tiene. Se resuelve el symlink a
+# mano porque `install.sh` instala justamente eso, un `ln -s` a ~/.local/bin, y desde ahi
+# hay que poder encontrar el repo.
+self=$0
+while [ -L "$self" ]; do
+    link=$(ls -ld -- "$self" | sed 's/^.*-> //')
+    case $link in
+        /*) self=$link ;;
+        *) self=$(dirname -- "$self")/$link ;;
+    esac
+done
+repo=$(CDPATH= cd -- "$(dirname -- "$self")/.." && pwd) || exit 1
+
+# En la mayoria de las distros y en macOS `python` no existe: solo `python3`. Y en Git
+# Bash pasa lo contrario: `python3` resuelve al stub de la Microsoft Store, que existe,
+# esta en el PATH y no es Python (sale con codigo 49). Por eso no alcanza con `command
+# -v`: hay que arrancar el candidato y ver si corre.
+for py in python3 python py; do
+    if command -v "$py" >/dev/null 2>&1 && "$py" -c '' >/dev/null 2>&1; then
+        exec "$py" "$repo/ldt.py" "$@"
+    fi
+done
+echo "ldt: no encontre python3 ni python en el PATH" >&2
+exit 127

@@ -1,0 +1,8 @@
+# El shim POSIX se escribe desde Windows, donde `core.autocrlf=true` es lo normal. Si se
+# checkoutea con CRLF, en Linux o macOS el kernel lee el shebang como "/usr/bin/env sh\r"
+# y falla con "bad interpreter": el CLI no arranca. Va siempre con LF.
+bin/ldt text eol=lf
+*.sh text eol=lf
+
+# Al revés para el de Windows: cmd.exe con un .cmd en LF se porta de forma errática.
+bin/ldt.cmd text eol=crlf
