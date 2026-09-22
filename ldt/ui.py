@@ -9,6 +9,8 @@ identico al de siempre.
 from __future__ import annotations
 
 import os
+import re
+import shutil
 import sys
 
 RESET = "\x1b[0m"
@@ -64,6 +66,41 @@ def can_redraw() -> bool:
     Separado de `supports_color` a proposito: NO_COLOR apaga el color, no la navegacion.
     """
     return bool(getattr(sys.stdout, "isatty", lambda: False)() and _enable_vt())
+
+
+_ANSI = re.compile("\\x1b\\[[0-9;?]*[a-zA-Z]")
+
+
+def plain(text: str) -> str:
+    """El texto sin los escapes ANSI: lo que de verdad ocupa en pantalla."""
+    return _ANSI.sub("", text)
+
+
+def width(default: int = 80) -> int:
+    """Ancho de la terminal, para saber cuantas filas ocupa lo que se imprime."""
+    try:
+        cols = shutil.get_terminal_size((default, 24)).columns
+    except Exception:
+        cols = default
+    return cols if cols > 0 else default
+
+
+def rows(lines: list[str]) -> int:
+    """Cuantas filas de terminal ocupa un bloque, contando saltos y envoltura.
+
+    Es lo que mira el menu para saber cuanto subir el cursor al repintar. Contar los
+    elementos de la lista no alcanza: un item puede traer saltos de linea adentro (el
+    cartel de bienvenida son cuatro renglones en un solo string) o ser mas largo que la
+    pantalla y envolverse. Quedarse corto hace que cada repintado arranque mas abajo y el
+    cartel se vaya acumulando en vez de reemplazarse.
+    """
+    cols = width()
+    total = 0
+    for line in lines:
+        for physical in line.split("\n"):
+            visible = len(plain(physical))
+            total += max(1, -(-visible // cols))
+    return total
 
 
 def paint(text: str, *styles: str) -> str:

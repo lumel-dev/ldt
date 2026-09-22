@@ -108,7 +108,9 @@ def _render(menu: Menu, cursor: int, header: list[str]) -> list[str]:
         else:
             lines.append(f"  {body}")
     lines += ["", ui.dim("  up/down mover  ·  Enter elegir  ·  q volver")]
-    return lines
+    # Aplanado: el cartel de bienvenida es un solo string con saltos adentro, y el repintado
+    # cuenta renglones. Un item de lista != una fila de pantalla.
+    return [physical for line in lines for physical in line.split("\n")]
 
 
 def _select(menu: Menu, header: list[str]) -> Item | None:
@@ -127,8 +129,12 @@ def _select(menu: Menu, header: list[str]) -> Item | None:
             sys.stdout.write(f"\x1b[{drawn}A")  # volver arriba y repintar en el lugar
         for line in block:
             sys.stdout.write("\x1b[2K" + line + "\n")
+        sys.stdout.write("\x1b[0J")  # borrar lo que haya quedado abajo de un bloque mas largo
         sys.stdout.flush()
-        drawn = len(block)
+        # Filas de pantalla, no items de la lista: un renglon mas largo que la terminal
+        # envuelve y ocupa dos. Subir de menos deja el bloque anterior pegado arriba, y
+        # asi es como el cartel de bienvenida se multiplicaba con cada flecha.
+        drawn = ui.rows(block)
         try:
             key = _read_key()
         except KeyboardInterrupt:

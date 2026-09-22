@@ -64,6 +64,12 @@ de siempre. Nada de barrer un puerto a ciegas.
    declarativos y terminan en un `argv` que pasa por el mismo parser que la línea de
    comandos: el menú no puede quedar haciendo algo distinto del CLI.
 
+**El menú repinta en el lugar y cuenta filas de pantalla, no items de lista.** `_select`
+sube el cursor con `\x1b[<n>A` antes de volver a dibujar, y ese `n` sale de `ui.rows()`, que
+parte los `\n` que vienen adentro de un mismo string (el cartel de bienvenida son cuatro
+renglones en uno solo) y suma lo que envuelve por ancho de terminal, midiendo el texto sin
+escapes ANSI.
+
 ## El daemon del browser
 
 Es la parte con más filo. `ldt/browser/daemon.py` corre en un proceso detached que mantiene
@@ -139,8 +145,10 @@ Se usa menos que Windows, pero el CLI no tiene nada de Windows adentro: es Pytho
   Microsoft Store, que está en el PATH, no es Python y sale con código 49. Por eso arranca
   cada candidato con `-c ''` antes de hacerle `exec`.
 - **`bin/ldt` e `install.sh` van con LF, pineado en `.gitattributes`.** Se editan desde
-  Windows, donde `core.autocrlf=true` es lo normal, y un shebang con `` hace que el
-  kernel busque un intérprete llamado `sh`: "bad interpreter". Y `bin/ldt` tiene que
+  Windows, donde `core.autocrlf=true` es lo normal, y un shebang con `
+` hace que el
+  kernel busque un intérprete llamado `sh
+`: "bad interpreter". Y `bin/ldt` tiene que
   estar como `100755` en el índice, o en un clone POSIX no se puede ejecutar.
 - **Para ver puertos, `ss` en Linux y `lsof` en macOS.** `ss` es de iproute2 y en BSD no
   existe. Sin uno de los dos, `ports` corta con un error claro en vez de devolver vacío:
