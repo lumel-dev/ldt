@@ -10,14 +10,113 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from ldt import core, ui
 from ldt.browser import client
+from ldt.cmds import dev
 from ldt.cmds.ports import listeners
 
 
+# Carpetas que nunca son un proyecto propio aunque tengan un package.json adentro.
+SKIP = {"node_modules", "vendor", "venv", "__pycache__", "dist", "build", "target"}
+
+
+def is_project(path: Path) -> bool:
+    if any((path / m).exists() for m in core.MARKERS):
+        return True
+    return any((path / f).exists() for f in (*core.COMPOSE_FILES, "index.php", "index.html"))
+
+
+def projects_under(base: Path, depth: int) -> list[Path]:
+    """Los proyectos de una carpeta de trabajo.
+
+    Una carpeta que no es proyecto se abre un nivel mas (hasta `depth`): es el caso de
+    las que agrupan varios repos de un mismo producto (`producto/api`, `producto/web`).
+    Un proyecto no se abre: sus subcarpetas son parte de el.
+    """
+    found: list[Path] = []
+    try:
+        children = sorted(base.iterdir(), key=lambda p: p.name.lower())
+    except OSError:
+        return found
+    for child in children:
+        if not child.is_dir() or child.name.startswith((".", "_")) or child.name in SKIP:
+            continue
+        if is_project(child):
+            found.append(child)
+        elif depth > 1:
+            found += projects_under(child, depth - 1)
+    return found
+
+
+def cmd_scan_all(a):
+    """Todos los proyectos de una carpeta en una sola llamada.
+
+    Es lo que usa una UI para armar la grilla: lanzar `ldt scan` una vez por proyecto
+    cuesta un arranque de Python cada uno. `listeners()` y los registros de `dev` se leen
+    una sola vez; git corre en paralelo porque son varios procesos por repo.
+    """
+    base = Path(a.path or a.cwd).resolve()
+    if not base.is_dir():
+        core.die(f"no existe la carpeta {base}")
+    roots = projects_under(base, a.depth)
+    ports = listeners()
+    procs = dev.all_live()
+
+    git = {}
+    if not a.no_git:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            git = dict(zip(roots, pool.map(core.git_info, roots)))
+
+    projects = []
+    for root in roots:
+        info = core.detect(root)
+        info.pop("scripts", None)
+        mine = [p for p in procs if core.belongs(p.get("cwd"), root)]
+        taken = next((r for r in ports if r["port"] == info["port"]), None) if info["port"] else None
+        if taken:
+            ours = any(taken["pid"] in (p["pid"], p["port_pid"]) for p in procs)
+            taken = {**taken, "ldt": ours}
+        g = git.get(root) or {}
+        projects.append(
+            {
+                "name": root.name,
+                "slug": core.project_slug(root),
+                "rel": root.relative_to(base).as_posix(),
+                **info,
+                "port_owner": taken,
+                "dev": mine,
+                "git": {"branch": g.get("branch"), "dirty_files": g.get("dirty_files")} if g else None,
+            }
+        )
+
+    rows = []
+    for p in projects:
+        state = ""
+        if any(d["ready"] for d in p["dev"]):
+            state = "corriendo"
+        elif any(d["alive"] for d in p["dev"]):
+            state = "arrancando"
+        elif p["port_owner"]:
+            state = f"puerto tomado ({p['port_owner']['process']})"
+        rows.append(
+            {
+                "proyecto": p["rel"],
+                "stack": p["framework"] or p["kind"],
+                "puerto": p["port"] or "",
+                "dev": p["dev_cmd"] or "-",
+                "estado": state,
+            }
+        )
+    text = core.table(rows, max_width=48) + f"\n\n{len(projects)} proyectos en {base}"
+    core.out({"base": str(base), "projects": projects}, a.json, text)
+
+
 def cmd_scan(a):
+    if a.all:
+        return cmd_scan_all(a)
     root = core.find_root(Path(a.cwd))
     info = core.detect(root)
     git = core.git_info(root)
@@ -150,6 +249,10 @@ def cmd_doctor(a):
 
 def register(sub):
     p = sub.add_parser("scan", help="resumen del proyecto: stack, como levantarlo, puerto, entorno, git")
+    p.add_argument("--all", action="store_true", help="todos los proyectos de una carpeta de trabajo")
+    p.add_argument("path", nargs="?", help="con --all, la carpeta a recorrer (default: la actual)")
+    p.add_argument("--depth", type=int, default=2, help="con --all, niveles de carpetas a abrir")
+    p.add_argument("--no-git", action="store_true", help="con --all, sin estado de git (mas rapido)")
     p.set_defaults(func=cmd_scan)
 
     p = sub.add_parser("doctor", help="verificar que ldt tiene todo lo que necesita")

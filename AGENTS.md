@@ -70,6 +70,22 @@ parte los `\n` que vienen adentro de un mismo string (el cartel de bienvenida so
 renglones en uno solo) y suma lo que envuelve por ancho de terminal, midiendo el texto sin
 escapes ANSI.
 
+## El contrato de `--json`
+
+La salida `--json` es una API: hay clientes que la parsean (la UI de escritorio, scripts)
+y no se enteran de un cambio hasta que se rompen. Todo objeto que sale por `core.out` lleva
+`"v": core.API_VERSION`.
+
+- **Agregar una clave es libre.** Los clientes ignoran lo que no conocen.
+- **Renombrar, sacar o cambiarle el tipo a una clave rompe**, y sube `API_VERSION`.
+- Lo que más usan los clientes, y lo que más cuidado pide: `scan --all` (la grilla de
+  proyectos) y `dev list` / `dev start` (`name`, `pid`, `port_pid`, `alive`, `ready`,
+  `port`, `url`, `log`, `cwd`).
+- `dev start --settle 0` vuelve sin esperar; el que llama hace polling a `dev list` hasta
+  `ready`. Por eso `dev.live()` anota el `port_pid` la primera vez que ve el puerto tomado:
+  con `--settle 0` `cmd_start` vuelve antes de que el server escuche y no llega a anotarlo,
+  y sin ese pid `stop` y `ldt_owns` no reconocen al hijo real.
+
 ## El daemon del browser
 
 Es la parte con más filo. `ldt/browser/daemon.py` corre en un proceso detached que mantiene

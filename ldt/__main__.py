@@ -18,7 +18,7 @@ from ldt import core, menu, ui
 from ldt.browser import cli as browser_cli
 from ldt.cmds import cleanup, db, dev, envck, http, ports, scan, status, test
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 EXAMPLES = [
     ("ldt scan", "que es este proyecto y como se levanta"),

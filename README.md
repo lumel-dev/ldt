@@ -66,6 +66,7 @@ Sin PATH, todo se puede invocar como `python /ruta/a/ldt/ldt.py <...>`.
 | `ldt` | Menú interactivo: elegir con las flechas, sin escribir comandos |
 | `ldt help` | La lista completa de comandos, con ejemplos |
 | `ldt scan` | Qué es este proyecto: stack, cómo se levanta, puerto, entorno, git |
+| `ldt scan --all <carpeta>` | Todos los proyectos de una carpeta de trabajo, en una llamada |
 | `ldt status` | Qué dejó `ldt` corriendo: dev servers, navegadores, puertos |
 | `ldt browser` | Navegador real controlable, con sesión que sobrevive entre comandos |
 | `ldt dev` | Server de desarrollo en background + sus logs |
@@ -133,11 +134,21 @@ distintos a la vez).
 ### `ldt dev`
 
 ```bash
-ldt dev start            # detecta pnpm dev / uvicorn y arranca detached
+ldt dev start            # detecta el stack y arranca detached
+ldt dev list             # qué corre, si ya escucha (ready) y en qué URL
 ldt dev logs --errors    # solo las líneas que parecen errores
 ldt dev logs --follow    # seguir el log en vivo
 ldt dev stop
 ```
+
+Detecta Next, Vite, Astro, Nuxt, Remix, SvelteKit, Angular, CRA y servers Node (Express,
+Fastify, Hono, Nest, Koa); FastAPI, Flask y Django, con el Python del `.venv` del repo si
+tiene uno; Laravel, Rails, Flutter web, Go, `docker compose` y PHP estático. Si el puerto
+cambia, se lo pasa al comando en el formato de cada uno (`--port`, `-p`, `runserver N`,
+`--web-port`, `-S host:N`). Si no acierta, `--cmd`.
+
+`dev start --settle 0` vuelve en el acto; después, `dev list` dice cuándo quedó escuchando
+(`ready`) y la URL que anunció en su log.
 
 **No mata lo que no es suyo.** Si el puerto está tomado por otro proceso (típicamente el
 `pnpm dev` que levantaste vos a mano), arranca en el siguiente libre y lo dice; `--force`

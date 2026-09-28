@@ -21,7 +21,17 @@ PROCS = core.PROCS
 
 # Frameworks cuyo script `dev` entiende `--port`: si el puerto esta ocupado por algo que
 # no es nuestro nos corremos a otro, y hay que avisarle al server a cual.
-PORT_FLAG = ("next", "vite", "astro", "nuxt", "remix")
+PORT_FLAG = ("next", "vite", "astro", "nuxt", "remix", "angular", "sveltekit")
+
+# Donde va el puerto en los comandos que arma `core.detect` cuando ya traen uno. Los que
+# no traen puerto ni aparecen aca (CRA, express, ...) lo leen de la variable PORT.
+PORT_ARGS = (
+    (r"--port[= ]\d+", "--port {port}"),
+    (r"--web-port[= ]\d+", "--web-port {port}"),  # flutter web
+    (r"runserver \d+", "runserver {port}"),  # django
+    (r"(?<= )-p \d+", "-p {port}"),  # rails
+    (r"-S (\S+):\d+", "-S {0}:{port}"),  # php -S host:puerto
+)
 
 
 def proc_file(name: str) -> Path:
@@ -59,11 +69,14 @@ def with_port(cmd: str, port: int, info: dict, explicit: bool) -> str:
     """
     if explicit:
         return cmd
-    if "--port" in cmd:
-        return re.sub(r"--port[= ]\d+", f"--port {port}", cmd)
+    for pattern, template in PORT_ARGS:
+        if re.search(pattern, cmd):
+            return re.sub(pattern, lambda m: template.format(*m.groups(), port=port), cmd, count=1)
     framework = (info.get("framework") or "").split("@")[0]
     if framework in PORT_FLAG:
-        return f"{cmd} --port {port}"
+        # `npm run` se queda con los flags que no van despues de `--`.
+        sep = " --" if cmd.startswith("npm run ") else ""
+        return f"{cmd}{sep} --port {port}"
     return cmd
 
 
@@ -196,22 +209,85 @@ def cmd_stop(a):
     core.out({"stopped": stopped}, a.json, f"detenidos: {', '.join(stopped) or '(ninguno)'}")
 
 
-def cmd_list(a):
+URL_RE = re.compile(r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):(\d+)[^\s'\"<>]*")
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def log_url(name: str, port: int | None) -> str | None:
+    """La URL que el server anuncio en su log ("Local: http://localhost:5173/").
+
+    Se lee solo el principio: es donde la imprimen, y el log de un server que corre hace
+    horas puede pesar megas. Si hay varias se prefiere la del puerto que le dimos.
+    """
+    log = log_file(name)
+    try:
+        with log.open("r", encoding="utf-8", errors="replace") as fh:
+            head = ANSI_RE.sub("", fh.read(64 * 1024))
+    except OSError:
+        return None
+    found = [(m.group(0).rstrip(".,;)"), int(m.group(1))) for m in URL_RE.finditer(head)]
+    if not found:
+        return None
+    url = next((u for u, p in found if p == port), found[0][0])
+    # "Escucho en todas las interfaces" no es una direccion que se pueda abrir.
+    return url.replace("0.0.0.0", "localhost").replace("[::]", "localhost")
+
+
+def live(meta: dict, rows: list[dict] | None = None) -> dict:
+    """Estado de una corrida: si sigue viva, si ya escucha, y en que URL.
+
+    `ready` es lo que tiene que mirar quien arranca con `--settle 0` y hace polling: el
+    proceso puede estar vivo varios segundos (compilando) antes de tomar el puerto.
+
+    Si el hijo real todavia no estaba anotado (`--settle 0` vuelve antes de que escuche),
+    se anota aca: al arrancar el puerto estaba libre, asi que quien lo tome mientras el
+    proceso siga vivo es el. Sin eso `stop` y `ldt_owns` no lo reconocen.
+    """
+    alive = running(meta.get("pid", -1))
+    port = meta.get("port")
+    listening = False
+    if port:
+        rows = listeners() if rows is None else rows
+        who = next((r for r in rows if r["port"] == port), None)
+        if who and meta.get("port_pid"):
+            listening = who["pid"] == meta["port_pid"]
+        elif who and alive:
+            listening = True
+            if who["pid"]:
+                meta["port_pid"] = who["pid"]
+                proc_file(meta["name"]).write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    # Sin puerto (docker compose, flutter a un dispositivo) no hay forma de saber cuando
+    # termino de arrancar: vivo es lo mas que se puede decir.
+    ready = listening if port else alive
+    url = log_url(meta["name"], port) if ready else None
+    if ready and not url and port:
+        url = f"http://localhost:{port}"
+    return {
+        "name": meta.get("name"),
+        "pid": meta.get("pid"),
+        "port_pid": meta.get("port_pid"),
+        "alive": alive or listening,
+        "ready": ready,
+        "port": port,
+        "url": url,
+        "cmd": meta.get("cmd"),
+        "cwd": meta.get("cwd"),
+        "log": str(log_file(meta["name"])),
+        "uptime_s": round(time.time() - meta.get("started_at", time.time())),
+    }
+
+
+def all_live() -> list[dict]:
     PROCS.mkdir(parents=True, exist_ok=True)
-    rows = []
-    for f in PROCS.glob("*.json"):
-        meta = core.read_json(f)
-        rows.append(
-            {
-                "name": meta.get("name"),
-                "pid": meta.get("pid"),
-                "alive": running(meta.get("pid", -1)),
-                "port": meta.get("port"),
-                "cmd": meta.get("cmd"),
-                "uptime_s": round(time.time() - meta.get("started_at", time.time())),
-            }
-        )
-    core.out({"procs": rows}, a.json, core.table(rows))
+    metas = [m for m in (core.read_json(f) for f in sorted(PROCS.glob("*.json"))) if m.get("name")]
+    rows = listeners() if any(m.get("port") for m in metas) else []
+    return [live(m, rows) for m in metas]
+
+
+def cmd_list(a):
+    procs = all_live()
+    cols = ["name", "pid", "alive", "ready", "port", "url", "uptime_s"]
+    core.out({"procs": procs}, a.json, core.table(procs, cols))
 
 
 def cmd_logs(a):

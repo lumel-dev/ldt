@@ -38,14 +38,20 @@ def ensure_dirs() -> None:
 # --------------------------------------------------------------------------- salida
 
 
+# Version del contrato de `--json`. Hay clientes que parsean esta salida (la UI, scripts):
+# renombrar o sacar una clave, o cambiarle el tipo, es un cambio incompatible y sube este
+# numero. Agregar claves nuevas no.
+API_VERSION = 1
+
+
 def out(obj, as_json: bool, text: str | None = None) -> None:
     """Imprime JSON si el que llama pidio --json, si no el texto legible."""
-    if as_json:
+    if as_json or text is None:
+        if isinstance(obj, dict):
+            obj = {"v": API_VERSION, **obj}
         print(json.dumps(obj, indent=2, ensure_ascii=False, default=str))
-    elif text is not None:
-        print(text)
     else:
-        print(json.dumps(obj, indent=2, ensure_ascii=False, default=str))
+        print(text)
 
 
 def die(msg: str, code: int = 1):
@@ -215,85 +221,180 @@ def mask(value: str) -> str:
 
 # ------------------------------------------------------------ deteccion de proyecto
 
+# Lo que marca la raiz de un proyecto. `find_root` sube hasta el primero que encuentra, asi
+# que aca no va nada que aparezca tambien en subdirectorios (un `index.html` en `public/`
+# cortaria la subida ahi).
+MARKERS = (
+    "package.json",
+    "pyproject.toml",
+    "requirements.txt",
+    ".git",
+    "go.mod",
+    "composer.json",
+    "artisan",
+    "manage.py",
+    "pubspec.yaml",
+    "Gemfile",
+)
+COMPOSE_FILES = ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
+
+# Dependencia de package.json -> (framework, puerto por defecto). El orden importa: el
+# primero que aparece gana, y casi todos traen `vite` como dependencia, asi que el
+# especifico va antes que el generico.
+NODE_FRAMEWORKS = (
+    ("next", "next", 3000),
+    ("@angular/core", "angular", 4200),
+    ("react-scripts", "cra", 3000),
+    ("nuxt", "nuxt", 3000),
+    ("astro", "astro", 4321),
+    ("@remix-run/dev", "remix", 5173),
+    ("remix", "remix", 5173),
+    ("@sveltejs/kit", "sveltekit", 5173),
+    ("vite", "vite", 5173),
+    ("@nestjs/core", "nest", 3000),
+    ("express", "express", 3000),
+    ("fastify", "fastify", 3000),
+    ("hono", "hono", 3000),
+    ("koa", "koa", 3000),
+)
+# Scripts que levantan el server, en orden de preferencia. `start` en Next es produccion y
+# pide un build previo: por eso va despues de `dev`, nunca antes.
+DEV_SCRIPTS = ("dev", "start", "serve", "develop")
+
 
 def find_root(start: Path) -> Path:
     """Raiz del proyecto: sube hasta encontrar un marcador conocido."""
-    markers = ("package.json", "pyproject.toml", "requirements.txt", ".git", "go.mod")
     cur = start.resolve()
     for candidate in (cur, *cur.parents):
-        if any((candidate / m).exists() for m in markers):
+        if any((candidate / m).exists() for m in MARKERS):
             return candidate
     return cur
 
 
 def read_json(path: Path) -> dict:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        # utf-8-sig: PowerShell y el Notepad viejo guardan con BOM, y con "utf-8" ese
+        # package.json no parsea y el proyecto sale como `unknown`.
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except Exception:
         return {}
 
 
+def _read(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace").lower()
+    except OSError:
+        return ""
+
+
+def _python(root: Path) -> str:
+    """El Python del proyecto: el de su `.venv` si tiene, que es donde estan sus deps."""
+    for venv in (".venv", "venv"):
+        rel = f"{venv}\\Scripts\\python.exe" if IS_WIN else f"{venv}/bin/python"
+        # Relativo: `dev start` corre con cwd en la raiz, y asi el comando se lee.
+        if (root / rel).exists():
+            return rel
+    return "python" if IS_WIN else "python3"
+
+
 def detect(root: Path) -> dict:
-    """Que es este proyecto: stack, package manager, comando de dev, puerto probable."""
+    """Que es este proyecto: stack, package manager, comando de dev, puerto probable.
+
+    Un repo puede tener mas de un stack (Laravel con Vite, FastAPI con un package.json de
+    tooling). `dev_cmd` es uno solo —el que sirve la app— con esta prioridad: los
+    frameworks de backend que tambien sirven el front (Laravel, Django, Rails), despues
+    FastAPI/Flask por sobre un package.json, despues Node, Flutter, Go, docker compose y,
+    como ultimo recurso, el server embebido de PHP.
+    """
     pkg = read_json(root / "package.json")
     deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
     scripts = pkg.get("scripts", {})
-
-    kind, framework = "unknown", None
-    if pkg:
-        kind = "node"
-        for name in ("next", "vite", "astro", "remix", "nuxt", "express", "fastify", "hono"):
-            if name in deps:
-                framework = f"{name}@{deps[name].lstrip('^~>=<')}"
-                break
-
-    has_fastapi = False
-    for f in (root / "requirements.txt", root / "pyproject.toml"):
-        if f.exists() and "fastapi" in f.read_text(encoding="utf-8", errors="replace").lower():
-            has_fastapi = True
-    if has_fastapi or (kind == "unknown" and list(root.glob("*.py"))):
-        kind = "python"
-        framework = framework or ("fastapi" if has_fastapi else "python")
+    composer = read_json(root / "composer.json")
+    composer_scripts = composer.get("scripts", {}) if isinstance(composer.get("scripts"), dict) else {}
+    py_deps = _read(root / "requirements.txt") + _read(root / "pyproject.toml")
 
     pm = "pnpm"
     if (root / "package-lock.json").exists():
         pm = "npm"
     elif (root / "yarn.lock").exists():
         pm = "yarn"
-    elif (root / "bun.lockb").exists():
+    elif (root / "bun.lockb").exists() or (root / "bun.lock").exists():
         pm = "bun"
 
-    dev_cmd = None
-    if kind == "node" and "dev" in scripts:
-        dev_cmd = f"{pm} dev"
-    elif kind == "python" and has_fastapi:
+    kind, framework, dev_cmd, port = "unknown", None, None, None
+
+    node_fw, node_port = None, None
+    if pkg:
+        for dep, name, default in NODE_FRAMEWORKS:
+            if dep in deps:
+                node_fw, node_port = f"{name}@{str(deps[dep]).lstrip('^~>=<')}", default
+                break
+    script = next((s for s in DEV_SCRIPTS if s in scripts), None)
+    # `npm dev` no existe: npm solo acepta scripts propios via `run`.
+    node_cmd = (f"npm run {script}" if pm == "npm" else f"{pm} {script}") if script else None
+
+    if (root / "artisan").exists():
+        kind, framework, port = "php", "laravel", 8000
+        # El `composer run dev` de Laravel 11 levanta server, cola y Vite juntos.
+        dev_cmd = "composer run dev" if "dev" in composer_scripts else "php artisan serve --port=8000"
+    elif (root / "manage.py").exists():
+        kind, framework, port = "python", "django", 8000
+        dev_cmd = f"{_python(root)} manage.py runserver 8000"
+    elif (root / "bin" / "rails").exists():
+        kind, framework, port = "ruby", "rails", 3000
+        dev_cmd = "ruby bin/rails server -p 3000"
+    elif "fastapi" in py_deps:
+        kind, framework, port = "python", "fastapi", 8000
         target = "main:app"
         for cand in ("main.py", "app/main.py", "src/main.py"):
             if (root / cand).exists():
                 target = cand[:-3].replace("/", ".") + ":app"
                 break
-        dev_cmd = f"python -m uvicorn {target} --reload --port 8000"
+        dev_cmd = f"{_python(root)} -m uvicorn {target} --reload --port 8000"
+    elif "flask" in py_deps and (root / "app.py").exists():
+        kind, framework, port = "python", "flask", 5000
+        dev_cmd = f"{_python(root)} -m flask --app app run --port 5000"
+    elif pkg:
+        kind, framework, port = "node", node_fw, node_port
+        dev_cmd = node_cmd
+    elif (root / "pubspec.yaml").exists() and (root / "lib" / "main.dart").exists():
+        kind, framework = "flutter", "flutter"
+        if (root / "web").is_dir():
+            port = 8080
+            dev_cmd = "flutter run -d web-server --web-port 8080"
+        else:
+            dev_cmd = "flutter run"
+    elif (root / "go.mod").exists():
+        kind, framework, dev_cmd = "go", "go", "go run ."
+    elif list(root.glob("*.py")):
+        kind, framework, port = "python", "python", 8000
 
-    port = None
-    if framework and framework.startswith("next"):
-        port = 3000
-    elif framework and framework.startswith("vite"):
-        port = 5173
-    elif kind == "python":
-        port = 8000
-    m = re.search(r"--port[= ](\d+)|(?:^| )-p (\d+)", scripts.get("dev", ""))
-    if m:
-        port = int(m.group(1) or m.group(2))
+    compose = next((f for f in COMPOSE_FILES if (root / f).exists()), None)
+    if not dev_cmd and compose:
+        kind = kind if kind != "unknown" else "docker"
+        framework = framework or "compose"
+        dev_cmd = "docker compose up"
+
+    if not dev_cmd and kind == "unknown":
+        docroot = "public" if (root / "public" / "index.php").exists() else "."
+        if (root / docroot / "index.php").exists() or (root / "index.html").exists():
+            kind, framework, port = "php", "php", 8000
+            dev_cmd = f"php -S 127.0.0.1:8000 -t {docroot}"
+
+    if kind == "node":
+        m = re.search(r"--port[= ](\d+)|(?:^| )-p (\d+)", scripts.get(script or "dev", ""))
+        if m:
+            port = int(m.group(1) or m.group(2))
 
     return {
         "root": str(root),
         "kind": kind,
         "framework": framework,
-        "package_manager": pm if kind == "node" else None,
+        "package_manager": pm if pkg else None,
         "scripts": scripts,
         "dev_cmd": dev_cmd,
         "port": port,
-        "has_docker": (root / "Dockerfile").exists() or (root / "docker-compose.yml").exists(),
+        "has_docker": (root / "Dockerfile").exists() or compose is not None,
         "env_files": [p.name for p in env_files(root)],
     }
 
