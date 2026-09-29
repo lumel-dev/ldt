@@ -33,7 +33,8 @@ def projects_under(base: Path, depth: int) -> list[Path]:
     """Los proyectos de una carpeta de trabajo.
 
     Una carpeta que no es proyecto se abre un nivel mas (hasta `depth`): es el caso de
-    las que agrupan varios repos de un mismo producto (`producto/api`, `producto/web`).
+    las que agrupan varios repos de un mismo producto (`producto/api`, `producto/web`),
+    o los de un cliente dentro de una carpeta de clientes (`clientes/acme/web`).
     Un proyecto no se abre: sus subcarpetas son parte de el.
     """
     found: list[Path] = []
@@ -251,7 +252,7 @@ def register(sub):
     p = sub.add_parser("scan", help="resumen del proyecto: stack, como levantarlo, puerto, entorno, git")
     p.add_argument("--all", action="store_true", help="todos los proyectos de una carpeta de trabajo")
     p.add_argument("path", nargs="?", help="con --all, la carpeta a recorrer (default: la actual)")
-    p.add_argument("--depth", type=int, default=2, help="con --all, niveles de carpetas a abrir")
+    p.add_argument("--depth", type=int, default=3, help="con --all, niveles de carpetas a abrir")
     p.add_argument("--no-git", action="store_true", help="con --all, sin estado de git (mas rapido)")
     p.set_defaults(func=cmd_scan)
 
