@@ -48,6 +48,14 @@ agente es ruido que además se paga. Y un prompt que espera una tecla en un proc
 **Seguro por defecto.** `db` abre la conexión read-only y exige `--write`; `env` enmascara
 los valores y exige `--reveal`; `ports --kill` se niega a matar sin un filtro.
 
+**Varios agentes a la vez.** Es lo normal: una sesión de agente por repo, en paralelo. Lo
+que `ldt` levanta se nombra por proyecto (`core.project_name`: dev server y sesión de
+browser, con la carpeta de arriba si dos proyectos se llaman igual) y todo lo que cierra o
+mata se limita al proyecto actual: `cleanup`, `dev stop --all`, `browser close --all`,
+`ports --kill` y el puerto ocupado de `dev start`. Tocar lo de otro proyecto pide un flag
+explícito (`--all`, `--global`, `--force`). Un comando nuevo que cierre cosas sigue la
+misma regla.
+
 **No se toca lo que no levantó `ldt`.** Es la regla que más cuesta respetar y la que más
 molesta cuando se rompe: el usuario suele tener su propio dev server corriendo en el puerto
 de siempre. Nada de barrer un puerto a ciegas.

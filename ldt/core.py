@@ -157,6 +157,33 @@ def project_slug(root: Path) -> str:
     return root.name.lower().replace(" ", "-")
 
 
+def ldt_owns(pid: int | None) -> dict | None:
+    """Si ese pid es un dev server que levanto ldt, devuelve su meta (con `cwd`)."""
+    if not pid:
+        return None
+    for f in PROCS.glob("*.json"):
+        meta = read_json(f)
+        if pid in (meta.get("pid"), meta.get("port_pid")):
+            return meta
+    return None
+
+
+def project_name(root: Path, registered_by) -> str:
+    """Nombre por defecto de lo que `ldt` levanta para un proyecto: dev server, browser.
+
+    Es el de la carpeta, pero dos proyectos pueden llamarse igual (`clientes/a/web` y
+    `clientes/b/web`). Con el mismo nombre compartian registro, y el agente de uno le
+    paraba el server o le manejaba el browser al del otro. Si el nombre ya lo tiene otro
+    proyecto, se le antepone la carpeta de arriba. `registered_by(nombre)` devuelve la
+    raiz del proyecto dueño de lo registrado con ese nombre, o None si esta libre.
+    """
+    name = project_slug(root)
+    other = registered_by(name)
+    if other and not belongs(other, root):
+        return f"{project_slug(root.parent)}-{name}"
+    return name
+
+
 # ---------------------------------------------------------------- entorno / config
 
 # El nombre del archivo de entorno se arma con un glob a proposito. Es habitual que un

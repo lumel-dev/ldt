@@ -7,6 +7,7 @@ interactuar, y leer errores de consola y requests fallidos sin adivinar.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import time
@@ -29,6 +30,29 @@ def _launch_opts(a) -> dict:
         # sesion de agente que esta trabajando en otro repo.
         "project": str(core.find_root(Path(a.cwd))),
     }
+
+
+def default_session(root: Path) -> str:
+    """Una sesion por proyecto, no una compartida.
+
+    Antes todas se llamaban `default`: dos agentes en repos distintos manejaban el mismo
+    Chromium, uno le navegaba la pagina al otro en medio de una prueba, y si pedia otros
+    flags (`--headed`) se lo relanzaba y le borraba el login. `LDT_BROWSER_SESSION` o `-s`
+    la cambian, p.ej. para dos agentes sobre el mismo repo.
+    """
+    env = os.environ.get("LDT_BROWSER_SESSION")
+    if env:
+        return env
+    return core.project_name(root, lambda name: ((client.read_session(name) or {}).get("opts") or {}).get("project"))
+
+
+def _in_session(fn):
+    def run(a):
+        if not a.session:
+            a.session = default_session(core.find_root(Path(a.cwd)))
+        return fn(a)
+
+    return run
 
 
 def _relaunch_needed(a, have: dict, opts: dict) -> list[str]:
@@ -314,13 +338,26 @@ def cmd_sessions(a):
 
 
 def cmd_close(a):
-    names = [s["name"] for s in client.sessions()] if a.all else [a.session]
+    names = [a.session]
+    kept: list[str] = []
+    if a.all:
+        # Scopeado al proyecto, como `dev stop --all` y `cleanup`: los browsers de otros
+        # repos pueden ser de otra sesion de agente a mitad de una prueba.
+        root = core.find_root(Path(a.cwd))
+        names = []
+        for s in client.sessions():
+            if a.glob_all or core.belongs((s.get("opts") or {}).get("project"), root):
+                names.append(s["name"])
+            else:
+                kept.append(s["name"])
     closed = [n for n in names if client.stop(n)]
     reaped = client.reap() if a.all else []
     text = f"cerradas: {', '.join(closed) or '(ninguna)'}"
     if reaped:
         text += f"\nhuerfanos cerrados: {', '.join(str(o['pid']) for o in reaped)}"
-    core.out({"closed": closed, "reaped": reaped}, a.json, text)
+    if kept:
+        text += f"\nde otros proyectos, sin tocar: {', '.join(kept)}  (`--all --global` las cierra tambien)"
+    core.out({"closed": closed, "reaped": reaped, "kept": kept}, a.json, text)
 
 
 def cmd_tabs(a):
@@ -363,7 +400,7 @@ def cmd_check(a):
 
 def register(sub):
     p = sub.add_parser("browser", help="navegador controlable (Playwright) con sesion persistente")
-    p.add_argument("-s", "--session", default="default", help="nombre de sesion (default: default)")
+    p.add_argument("-s", "--session", help="nombre de sesion (default: el del proyecto)")
     p.add_argument("--headed", action="store_true", help="mostrar la ventana del navegador")
     p.add_argument("--profile", help="perfil persistente: reusa el login entre corridas")
     p.add_argument("--width", type=int, default=1440)
@@ -380,7 +417,7 @@ def register(sub):
 
     def add(name, fn, help_):
         sp = bs.add_parser(name, help=help_)
-        sp.set_defaults(func=fn)
+        sp.set_defaults(func=_in_session(fn))
         return sp
 
     sp = add("open", cmd_open, "abrir la sesion (y opcionalmente una URL)")
@@ -501,4 +538,7 @@ def register(sub):
     add("sessions", cmd_sessions, "sesiones de browser abiertas")
 
     sp = add("close", cmd_close, "cerrar la sesion (y el Chromium)")
-    sp.add_argument("--all", action="store_true")
+    sp.add_argument("--all", action="store_true", help="todas las de este proyecto")
+    sp.add_argument(
+        "--global", dest="glob_all", action="store_true", help="con --all, tambien las de otros proyectos"
+    )

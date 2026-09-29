@@ -128,8 +128,10 @@ ldt browser goto http://localhost:3000/panel    # mismo browser, ya autenticado
 Ese login vale mientras el browser siga abierto. `--profile <nombre>` guarda el perfil en
 disco y sobrevive al cierre, pero es la excepción, no el default.
 
-**Sesiones paralelas.** `-s <nombre>` abre navegadores independientes (p.ej. dos usuarios
-distintos a la vez).
+**Una sesión por proyecto.** Cada repo tiene su propio browser (la sesión se llama como el
+proyecto), así que dos agentes trabajando en repos distintos no se navegan ni se cierran la
+página uno al otro. `-s <nombre>` o `LDT_BROWSER_SESSION` abren otro independiente: dos
+usuarios distintos a la vez, o dos agentes sobre el mismo repo.
 
 ### `ldt dev`
 

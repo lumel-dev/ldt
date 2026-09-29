@@ -33,7 +33,9 @@ Reglas:
   `kill` sobre un dev server que no aparezca en `ldt dev list`: el usuario suele tener el
   suyo levantado a mano. Si el puerto está tomado por algo ajeno, `ldt dev start` ya
   arranca en el siguiente puerto libre y lo avisa; `--force` (matar al ocupante) sólo si el
-  usuario lo pide.
+  usuario lo pide. Lo mismo vale para lo que `ldt` levantó para **otro** proyecto: suele ser
+  de otra sesión de agente trabajando en paralelo. `dev start`, `ports --kill`, `cleanup` y
+  `browser close --all` ya lo dejan en paz; no forzarlos con `--force` / `--global`.
 - **`ldt cleanup` va una sola vez, al terminar, y no si el usuario sigue trabajando.**
   Entre pasos **no se cierra nada**. El browser de desarrollo es efímero a propósito:
   cerrarlo borra las cookies, el login y el estado de la página, así que cerrarlo antes de

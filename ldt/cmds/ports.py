@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+from pathlib import Path
 
 from ldt import core
 
@@ -134,8 +135,22 @@ def cmd_ports(a):
     if not rows:
         core.out({"killed": []}, a.json, "no hay nada escuchando ahi")
         return
+    # El dev server que ldt levanto para *otro* proyecto no se mata sin --force: puede ser
+    # el de otra sesion de agente a mitad de una prueba, y ahi `ldt dev start` ya se corre
+    # solo a un puerto libre.
+    root = core.find_root(Path(a.cwd))
+    spared = []
+    for r in rows:
+        meta = core.ldt_owns(r["pid"])
+        if meta and not a.force and not core.belongs(meta.get("cwd"), root):
+            spared.append({**r, "server": meta.get("name"), "cwd": meta.get("cwd")})
+    rows = [r for r in rows if r["pid"] not in {s["pid"] for s in spared}]
     killed = [{**r, "ok": kill_pid(r["pid"])} for r in rows]
-    core.out({"killed": killed}, a.json, core.table(killed, ["port", "pid", "process", "ok"]))
+    text = core.table(killed, ["port", "pid", "process", "ok"]) if killed else "no mate nada"
+    if spared:
+        text += "\nsin tocar, son dev servers de ldt de otro proyecto (--force los mata igual):\n"
+        text += core.table(spared, ["port", "pid", "server", "cwd"])
+    core.out({"killed": killed, "spared": spared}, a.json, text)
 
 
 def register(sub):
@@ -143,4 +158,5 @@ def register(sub):
     p.add_argument("ports", nargs="*", type=int, help="filtrar por puerto(s)")
     p.add_argument("--filter", help="filtrar por nombre de proceso")
     p.add_argument("--kill", action="store_true", help="matar los procesos que quedaron listados")
+    p.add_argument("--force", action="store_true", help="con --kill, tambien los dev servers de otros proyectos")
     p.set_defaults(func=cmd_ports)

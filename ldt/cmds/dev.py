@@ -48,18 +48,13 @@ def load(name: str) -> dict | None:
 
 
 running = core.running
-default_name = core.project_slug
 
 
-def ldt_owns(pid: int | None) -> dict | None:
-    """Si ese pid es un dev server que levanto ldt, devuelve su meta."""
-    if not pid:
-        return None
-    for f in PROCS.glob("*.json"):
-        meta = core.read_json(f)
-        if pid in (meta.get("pid"), meta.get("port_pid")):
-            return meta
-    return None
+def default_name(root: Path) -> str:
+    return core.project_name(root, lambda name: (load(name) or {}).get("cwd"))
+
+
+ldt_owns = core.ldt_owns
 
 
 def with_port(cmd: str, port: int, info: dict, explicit: bool) -> str:
@@ -101,27 +96,30 @@ def cmd_start(a):
     before = {(r["port"], r["pid"]) for r in listeners()}
     if port:
         taken = owner(port)
+        held = ldt_owns(taken["pid"]) if taken else None
         if taken and a.force:
             kill_pid(taken["pid"])
             notes.append(f":{port} lo tenia {taken['process']} (pid {taken['pid']}) - lo mate por --force")
-        elif taken and ldt_owns(taken["pid"]):
+        elif held and core.belongs(held.get("cwd"), root):
             # Sobra de una corrida nuestra anterior: esa si es basura y se limpia sola.
             kill_pid(taken["pid"])
             notes.append(f":{port} lo tenia una corrida vieja de ldt - liberado")
         elif taken:
-            # No es nuestro. Antes lo mataba igual: si el usuario tenia su propio
-            # `pnpm dev` levantado a mano, se lo llevaba puesto. Ahora nos corremos.
+            # No es nuestro: o lo levanto el usuario a mano, o es el dev server de ldt de
+            # *otro* proyecto, que puede ser el de otra sesion de agente trabajando en
+            # paralelo (dos repos con :3000 por defecto). Antes se mataba en los dos casos.
+            # Ahora nos corremos.
+            who = (
+                f"el dev server '{held['name']}' de ldt (otro proyecto: {held.get('cwd')})"
+                if held
+                else f"{taken['process']} (pid {taken['pid']}, no es de ldt)"
+            )
             other = free_port(port + 1)
             if a.port:
-                core.die(
-                    f":{port} lo tiene {taken['process']} (pid {taken['pid']}) y no es de ldt. "
-                    f"Usa --force para matarlo, o --port {other} para arrancar al lado"
-                )
+                core.die(f":{port} lo tiene {who}. Usa --force para matarlo, o --port {other} para arrancar al lado")
             if not other:
                 core.die(f":{port} ocupado y no hay ninguno libre cerca. Liberalo o pasa --port")
-            notes.append(
-                f":{port} lo tiene {taken['process']} (pid {taken['pid']}, no es de ldt) - arranco en :{other}"
-            )
+            notes.append(f":{port} lo tiene {who} - arranco en :{other}")
             port = other
         cmd = with_port(cmd, port, info, explicit=bool(a.cmd))
 
