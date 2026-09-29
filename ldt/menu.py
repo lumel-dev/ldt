@@ -229,10 +229,11 @@ def _menus(info: dict) -> dict[str, Menu]:
         "db": Menu(
             "Base de datos",
             [
-                Item("Probar la conexion", "ldt db ping", ["db", "ping"]),
+                Item("Probar la conexion", "y a que base va: dev o produccion", ["db", "ping"]),
                 Item("Tablas", "tamano y filas", ["db", "tables"]),
                 Item("Esquema de una tabla", "columnas e indices", ["db", "schema"], (("tabla", ""),)),
-                Item("Consulta", "solo lectura", ["db", "q"], (("SQL", "select 1"),)),
+                Item("Consulta", "solo lectura, en dev si hay", ["db", "q"], (("SQL", "select 1"),)),
+                Item("Consulta en produccion", "solo lectura, --prod", ["db", "--prod", "q"], (("SQL", "select 1"),)),
                 Item("Volver", action="back"),
             ],
         ),

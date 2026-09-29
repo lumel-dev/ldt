@@ -72,7 +72,7 @@ Sin PATH, todo se puede invocar como `python /ruta/a/ldt/ldt.py <...>`.
 | `ldt dev` | Server de desarrollo en background + sus logs |
 | `ldt test` | Correr la suite de tests del proyecto |
 | `ldt ports` | Qué escucha en cada puerto, y matar al que quedó colgado |
-| `ldt db` | Consultar la base PostgreSQL del proyecto (solo lectura por defecto) |
+| `ldt db` | Consultar la base PostgreSQL del proyecto (dev y solo lectura por defecto; `--prod` para producción) |
 | `ldt http` | Requests con salida legible; esperar a que un server levante |
 | `ldt env` | Qué variables faltan, sin imprimir secretos |
 | `ldt cleanup` | Cerrar el dev server y el navegador que quedaron abiertos |
@@ -191,10 +191,15 @@ ldt db tables
 ldt db schema invoices
 ldt db q "select count(*) from users"
 ldt db q "update users set x = 1" --write   # las escrituras necesitan --write explícito
+ldt db --prod q "select count(*) from users" # la base de producción, pedida a propósito
+ldt db q "select id from users" --limit 0   # sin el LIMIT 50 implícito
 ```
 
-La URL sale de `DATABASE_URL` (o `POSTGRES_URL`, `DB_URL`, …) del proyecto. La conexión se
-abre en modo read-only salvo `--write`.
+La URL sale de `DATABASE_URL` (o `POSTGRES_URL`, `DB_URL`, …) del proyecto, **salvo que exista
+su variante de dev** (`DATABASE_URL_DEV`, `_DEVELOPMENT`, `_LOCAL`): ahí va a dev, y producción
+se pide con `--prod` (o `--key DATABASE_URL`). Cada comando imprime por stderr a qué base fue,
+con `[dev]` o `[!! PRODUCCION]`. La conexión se abre en modo read-only salvo `--write`, y escribir
+en una base que no es dev pide además `--prod`. Si `q` corta en el LIMIT implícito, lo avisa.
 
 ## Dónde queda el estado
 

@@ -52,7 +52,10 @@ Reglas:
   probar algo distinto de lo que corre de verdad. `ldt browser` es para las UIs; el resto
   de `ldt` (`db`, `ports`, `dev`, `http`, `env`, `scan`) sirve igual en cualquier caso.
 - `ldt db` es read-only por defecto; escribir necesita `--write` **y** que el usuario lo
-  autorice, porque la URL del proyecto suele apuntar a una base real.
+  autorice, porque la URL del proyecto suele apuntar a una base real. Si el proyecto tiene
+  `DATABASE_URL_DEV`, `ldt db` va a dev y producción se pide con `--prod`: **mirar la línea
+  `db: … [dev]` / `[!! PRODUCCION]`** que imprime antes de sacar conclusiones, y usar
+  `--limit 0` para contar o chequear "todas" las filas (si no, corta en 50 y lo avisa).
 - `ldt env` nunca imprime secretos salvo `--reveal`, que no hay que usar por iniciativa
   propia.
 - El detalle está en `ldt help` y `ldt <grupo> --help`.

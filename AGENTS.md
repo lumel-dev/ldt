@@ -48,6 +48,14 @@ agente es ruido que además se paga. Y un prompt que espera una tecla en un proc
 **Seguro por defecto.** `db` abre la conexión read-only y exige `--write`; `env` enmascara
 los valores y exige `--reveal`; `ports --kill` se niega a matar sin un filtro.
 
+`db` además va a **dev por defecto**: si el proyecto tiene `DATABASE_URL_DEV` (o `_DEVELOPMENT` /
+`_LOCAL`) al lado de `DATABASE_URL`, usa la de dev, y producción hay que pedirla con `--prod`. Antes
+tomaba la primera de una lista fija, o sea `DATABASE_URL`, que en esos proyectos es producción: un
+agente que creía mirar dev consultaba la base real sin enterarse. Por eso también anuncia la base
+en cada comando (stderr: host, variable, `[dev]` / `[!! PRODUCCION]`), escribir en algo que no sea
+dev pide `--write` **y** `--prod`, y el `LIMIT 50` implícito de `q` avisa cuando corta (`truncated`
+en `--json`) — un conteo hecho sobre 50 filas de 1500 parece el total.
+
 **Varios agentes a la vez.** Es lo normal: una sesión de agente por repo, en paralelo. Lo
 que `ldt` levanta se nombra por proyecto (`core.project_name`: dev server y sesión de
 browser, con la carpeta de arriba si dos proyectos se llaman igual) y todo lo que cierra o

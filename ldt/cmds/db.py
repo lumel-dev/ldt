@@ -5,11 +5,23 @@ entorno del proyecto, asi que el comando la resuelve solo desde el cwd.
 
 Por defecto es de solo lectura: cualquier sentencia que escriba necesita --write, para
 que un agente no pueda modificar datos por accidente al "mirar" algo.
+
+**Dev por defecto, produccion a pedido.** Muchos proyectos tienen las dos URLs en el mismo
+.env (`DATABASE_URL` + `DATABASE_URL_DEV`, y el codigo elige con `ENVIRONMENT`). Antes se
+tomaba la primera de URL_KEYS, o sea `DATABASE_URL`, que en esos proyectos es produccion: un
+agente que creia estar mirando dev consultaba la base real sin enterarse. Ahora, si existe la
+variante de dev de la variable, se usa esa, y la otra hace falta pedirla con `--prod`. No se
+mira el `ENVIRONMENT` del .env a proposito: un .env que quedo apuntando a produccion no puede
+alcanzar para que un comando de "mirar" vaya ahi.
+
+Cada comando dice a que base fue (host, variable y si es dev o PRODUCCION) por stderr, y
+escribir en produccion pide `--write` **y** `--prod`.
 """
 
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 from ldt import core
@@ -25,24 +37,73 @@ URL_KEYS = (
     "SUPABASE_DB_URL",
 )
 
+#: Sufijos con los que un proyecto nombra su base de desarrollo, en orden de preferencia.
+DEV_SUFFIXES = ("_DEV", "_DEVELOPMENT", "_LOCAL")
+
 WRITE_RE = re.compile(
     r"^\s*(insert|update|delete|drop|truncate|alter|create|grant|revoke|copy|vacuum|reindex|call|do)\b",
     re.I,
 )
 
 
-def resolve_url(a) -> tuple[str, str]:
+def resolve_url(a) -> tuple[str, str, str]:
+    """(url, variable de donde salio, entorno: "dev" | "PRODUCCION" | "?").
+
+    Sin --key ni --url: si el proyecto tiene la variante de dev de alguna variable conocida
+    (`DATABASE_URL_DEV`), se usa esa salvo que se pida --prod. La base "de produccion" sin
+    variante de dev queda como "?": no hay con que compararla, y decir "dev" seria mentir.
+    """
     if a.url:
-        return a.url, "--url"
+        return a.url, "--url", _entorno_de_url(a.url)
     root = core.find_root(Path(a.cwd))
     env = core.project_env(root)
-    key = a.key or next((k for k in URL_KEYS if env.get(k)), None)
-    if not key or not env.get(key):
+    prod = getattr(a, "prod", False)
+
+    if a.key:
+        if not env.get(a.key):
+            core.die(f"la variable {a.key} no esta en el entorno del proyecto")
+        return env[a.key], a.key, _entorno(a.key, env)
+
+    base = next((k for k in URL_KEYS if env.get(k)), None)
+    dev = next(
+        (k + suf for k in URL_KEYS for suf in DEV_SUFFIXES if env.get(k + suf)),
+        None,
+    )
+    if prod:
+        if not base:
+            core.die(f"--prod: no hay ninguna de {', '.join(URL_KEYS)} en el entorno")
+        return env[base], base, _entorno(base, env)
+    key = dev or base
+    if not key:
         core.die(
             "no encontre la URL de la base. Pasala con --url, o indicá la variable con --key. "
-            f"Buscadas: {', '.join(URL_KEYS)}"
+            f"Buscadas: {', '.join(URL_KEYS)} (y sus variantes {'/'.join(DEV_SUFFIXES)})"
         )
-    return env[key], key
+    return env[key], key, _entorno(key, env)
+
+
+def _entorno(key: str, env: dict[str, str]) -> str:
+    if key.upper().endswith(DEV_SUFFIXES):
+        return "dev"
+    if any(env.get(key + suf) for suf in DEV_SUFFIXES):
+        return "PRODUCCION"  # hay una de dev al lado, asi que esta es la otra
+    return _entorno_de_url(env.get(key, ""))
+
+
+def _entorno_de_url(url: str) -> str:
+    host = _host(url)
+    return "dev" if host in ("localhost", "127.0.0.1", "::1") else "?"
+
+
+def _host(url: str) -> str:
+    m = re.search(r"@([^:/?]+)", url)
+    return m.group(1) if m else "?"
+
+
+def _avisar_base(url: str, source: str, entorno: str) -> None:
+    """Por stderr, asi no ensucia el --json ni la tabla pero el que lee siempre lo ve."""
+    marca = {"PRODUCCION": "!! PRODUCCION", "dev": "dev"}.get(entorno, "entorno desconocido")
+    print(f"db: {_host(url)} [{marca}] (de {source})", file=sys.stderr)
 
 
 def fix_ssl(url: str) -> str:
@@ -69,9 +130,18 @@ def connect(a):
         import psycopg2
     except ImportError:
         core.die("falta psycopg2: pip install psycopg2-binary")
-    url, source = resolve_url(a)
+    url, source, entorno = resolve_url(a)
+    write = getattr(a, "write", False)
+    if write and entorno != "dev" and not getattr(a, "prod", False):
+        core.die(
+            f"--write contra {_host(url)} (de {source}), que no es una base de dev "
+            f"({entorno}). Si es a proposito, agregá --prod."
+        )
+    if not getattr(a, "_base_avisada", False):
+        _avisar_base(url, source, entorno)
+        a._base_avisada = True
     conn = psycopg2.connect(fix_ssl(url), connect_timeout=10)
-    conn.set_session(readonly=not getattr(a, "write", False), autocommit=True)
+    conn.set_session(readonly=not write, autocommit=True)
     return conn, source
 
 
@@ -93,10 +163,24 @@ def cmd_query(a):
     if WRITE_RE.match(a.sql) and not a.write:
         core.die("esa sentencia escribe. Repetila con --write si es a proposito.")
     sql = a.sql
-    if a.limit and re.match(r"^\s*select\b", sql, re.I) and " limit " not in sql.lower():
+    limitado = bool(a.limit and re.match(r"^\s*select\b", sql, re.I) and " limit " not in sql.lower())
+    if limitado:
         sql = f"{sql.rstrip().rstrip(';')} LIMIT {a.limit}"
     rows, note = run_sql(a, sql)
-    core.out({"rows": rows, "count": len(rows), "status": note}, a.json, core.table(rows) + f"\n({note})")
+    # El LIMIT implicito corta en silencio: 50 filas de un SELECT que tiene 1500 parecen el
+    # resultado entero, y cualquier conteo o chequeo "sobre todo" hecho con eso es falso.
+    truncated = limitado and len(rows) >= a.limit
+    if truncated:
+        print(
+            f"ojo: se corto en {a.limit} filas (LIMIT implicito); puede haber mas. "
+            "--limit 0 para traer todas.",
+            file=sys.stderr,
+        )
+    core.out(
+        {"rows": rows, "count": len(rows), "truncated": truncated, "status": note},
+        a.json,
+        core.table(rows) + f"\n({note})",
+    )
 
 
 def cmd_tables(a):
@@ -150,17 +234,29 @@ def cmd_schema(a):
 
 def cmd_ping(a):
     rows, _ = run_sql(a, "SELECT current_database() AS db, current_user AS user, version() AS version")
-    _, source = resolve_url(a)
-    info = {**rows[0], "url_from": source}
-    core.out(info, a.json, f"ok: {info['db']} como {info['user']} (URL de {source})\n{info['version'][:80]}")
+    url, source, entorno = resolve_url(a)
+    info = {**rows[0], "url_from": source, "host": _host(url), "entorno": entorno}
+    core.out(
+        info,
+        a.json,
+        f"ok: {info['db']} como {info['user']} en {info['host']} [{entorno}] (URL de {source})"
+        f"\n{info['version'][:80]}",
+    )
 
 
 def register(sub):
-    p = sub.add_parser("db", help="consultar la base PostgreSQL del proyecto (solo lectura por defecto)")
+    p = sub.add_parser(
+        "db", help="consultar la base PostgreSQL del proyecto (dev y solo lectura por defecto)"
+    )
     p.add_argument("--url", help="connection string explicita")
     p.add_argument("--key", help="variable de entorno de donde sacar la URL")
     p.add_argument("--schema", default="public")
     p.add_argument("--write", action="store_true", help="permitir sentencias que escriben")
+    p.add_argument(
+        "--prod",
+        action="store_true",
+        help="usar la base de produccion aunque el proyecto tenga una de dev (y permitir --write ahi)",
+    )
     ds = p.add_subparsers(dest="db_cmd", required=True)
 
     sp = ds.add_parser("q", help="correr una consulta")

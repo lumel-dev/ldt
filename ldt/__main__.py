@@ -27,13 +27,14 @@ EXAMPLES = [
     ("ldt browser elements", "elementos clickeables con refs @N"),
     ("ldt browser click @3", "click en el elemento @3"),
     ("ldt browser errors", "errores de consola, JS y requests fallidos"),
-    ('ldt db q "select count(*) from users"', "consulta de solo lectura"),
+    ('ldt db q "select count(*) from users"', "consulta de solo lectura (dev si el proyecto tiene una)"),
+    ('ldt db --prod q "select count(*) from users"', "la misma, contra produccion a proposito"),
     ("ldt ports 3000 --kill", "liberar un puerto colgado"),
     ("ldt env check", "variables que faltan (sin mostrar valores)"),
     ("ldt cleanup", "cerrar el dev server y el browser al terminar"),
 ]
 
-EPILOG = "ejemplos:\n" + "\n".join(f"  {cmd:<42} {desc}" for cmd, desc in EXAMPLES) + "\n"
+EPILOG = "ejemplos:\n" + "\n".join(f"  {cmd:<46} {desc}" for cmd, desc in EXAMPLES) + "\n"
 
 
 def _groups(parser: argparse.ArgumentParser) -> list[dict]:
@@ -82,7 +83,7 @@ def banner_full(parser: argparse.ArgumentParser) -> str:
     lines += [
         "",
         ui.section("ejemplos:"),
-        *[f"  {c:<42} {ui.dim(d)}" for c, d in EXAMPLES],
+        *[f"  {c:<46} {ui.dim(d)}" for c, d in EXAMPLES],
         "",
         ui.section("opciones globales:"),
         f"  --json            {ui.dim('salida estructurada en vez de texto')}",
