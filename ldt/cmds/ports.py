@@ -14,7 +14,10 @@ from ldt import core
 
 
 def _win_listeners() -> list[dict]:
-    net = subprocess.run(["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True).stdout
+    # Sin `-p tcp`: eso filtra a IPv4, y desde Node 17 Vite y compania escuchan en `[::1]`.
+    # Con el filtro, un server que escucha solo en IPv6 era invisible: `dev start` daba el
+    # puerto por libre y `dev list` nunca lo marcaba listo. Las filas v6 tambien dicen "TCP".
+    net = subprocess.run(["netstat", "-ano"], capture_output=True, text=True).stdout
     names: dict[int, str] = {}
     tl = subprocess.run(["tasklist", "/fo", "csv", "/nh"], capture_output=True, text=True).stdout
     for line in tl.splitlines():
