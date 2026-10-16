@@ -37,7 +37,7 @@ screenshot: C:\Users\vos\.ldt\shots\default-1790024289.png
 En Windows:
 
 ```powershell
-git clone https://github.com/<tu-usuario>/ldt.git
+git clone https://github.com/lumel-dev/ldt.git
 python .\ldt\ldt.py doctor --install                          # dependencias
 powershell -ExecutionPolicy Bypass -File .\ldt\install.ps1    # PATH + regla para agentes
 ```
@@ -45,7 +45,7 @@ powershell -ExecutionPolicy Bypass -File .\ldt\install.ps1    # PATH + regla par
 En Linux o macOS:
 
 ```sh
-git clone https://github.com/<tu-usuario>/ldt.git
+git clone https://github.com/lumel-dev/ldt.git
 python3 ./ldt/ldt.py doctor --install    # dependencias
 ./ldt/install.sh                         # PATH + regla para agentes
 ```
