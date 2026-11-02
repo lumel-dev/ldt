@@ -86,8 +86,12 @@ def running(pid: int | None) -> bool:
     if not pid or pid < 0:
         return False
     if IS_WIN:
+        # tasklist/taskkill escriben en la codepage OEM, no en UTF-8 (ver `ports._win_listeners`).
         r = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"], capture_output=True, text=True
+            ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
+            capture_output=True,
+            encoding="oem",
+            errors="replace",
         )
         # /FO CSV deja el pid como campo propio entre comillas: buscarlo asi evita el falso
         # positivo de que "123" aparezca dentro de otro numero de la salida.
@@ -116,7 +120,9 @@ def kill_tree(pid: int | None) -> bool:
     if not pid or pid < 0:
         return False
     if IS_WIN:
-        r = subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, text=True)
+        r = subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, encoding="oem", errors="replace"
+        )
         return r.returncode == 0
     import signal
     import time

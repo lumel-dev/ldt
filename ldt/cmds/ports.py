@@ -18,9 +18,13 @@ def _win_listeners() -> list[dict]:
     # Sin `-p tcp`: eso filtra a IPv4, y desde Node 17 Vite y compania escuchan en `[::1]`.
     # Con el filtro, un server que escucha solo en IPv6 era invisible: `dev start` daba el
     # puerto por libre y `dev list` nunca lo marcaba listo. Las filas v6 tambien dicen "TCP".
-    net = subprocess.run(["netstat", "-ano"], capture_output=True, text=True).stdout
+    # netstat y tasklist escriben en la codepage OEM de la consola (cp850 en castellano), no
+    # en UTF-8: desde Python 3.15 `text=True` decodifica en UTF-8 y una "ó" lo rompia.
+    net = subprocess.run(["netstat", "-ano"], capture_output=True, encoding="oem", errors="replace").stdout
     names: dict[int, str] = {}
-    tl = subprocess.run(["tasklist", "/fo", "csv", "/nh"], capture_output=True, text=True).stdout
+    tl = subprocess.run(
+        ["tasklist", "/fo", "csv", "/nh"], capture_output=True, encoding="oem", errors="replace"
+    ).stdout
     for line in tl.splitlines():
         parts = [p.strip('"') for p in line.split('","')]
         if len(parts) >= 2 and parts[1].strip('"').isdigit():
