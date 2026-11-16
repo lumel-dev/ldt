@@ -191,6 +191,7 @@ def _menus(info: dict) -> dict[str, Menu]:
                 Item("HTTP / API", submenu="http"),
                 Item("Entorno", submenu="env"),
                 Item("Puertos", submenu="ports"),
+                Item("Verificar la imagen Docker", "build + smoke, y la borra", ["docker", "check"]),
                 Item("", separator=True),
                 Item("Todos los comandos", "la lista completa", ["help"]),
                 Item("Estado de lo que esta vivo", "ldt status", ["status"]),

@@ -20,7 +20,7 @@ ldt/core.py            salida, tablas, entorno, procesos, detección de proyecto
 ldt/ui.py              color, símbolos y marcos (nada de esto sale si no hay TTY)
 ldt/menu.py            menú interactivo de `ldt` sin argumentos
 ldt/browser/           daemon Playwright + cliente + CLI
-ldt/cmds/              dev, ports, db, http, envck, scan, test, status, cleanup
+ldt/cmds/              dev, ports, db, http, envck, scan, test, docker, status, cleanup
 rules/ldt.md           el texto que se instala en el archivo de instrucciones del agente
 install.ps1            PATH + regla en Windows (idempotente)
 install.sh             lo mismo en Linux y macOS (idempotente)
@@ -143,6 +143,29 @@ todo entre uno y otro.
   Es el piso, no la garantía: lo que evita los huérfanos es el registro en `daemons/`.
   `op_keepalive` sube ese límite para una sesión — lo usa `browser login`, porque un login
   a mano puede tardar y sin perfil en disco morirse ahí significa perderlo.
+
+## `docker check`
+
+Existe porque es común que la CI no construya la imagen y la plataforma de deploy sí: un PR
+en verde puede romper el deploy (playwright 1.65 pide `libatomic`, que `python:*-slim` no
+trae). Las decisiones:
+
+- **Un PR se buildea en un worktree propio** (`~/.ldt/worktrees/`), bajado con
+  `git fetch <remote> refs/pull/N/head`. Nunca se hace checkout en el árbol del usuario:
+  puede tener cambios sin commitear, y otro agente puede estar trabajando en ese repo. El
+  worktree se borra en un `finally`, falle lo que falle.
+- **La imagen se borra siempre** salvo `--keep`; la cache de build no, porque es lo que
+  hace rápido el siguiente chequeo. El tag es `ldt-check/<proyecto>:prN|local`, así que
+  dos agentes en repos distintos no se pisan.
+- **`--build-env` no lee el archivo de entorno del proyecto.** Ahí suele estar la base de
+  producción, y un `ARG` usado en un `RUN` queda en la cache y en el historial de la
+  imagen. Sin valor va un placeholder con la forma correcta (una URL de Postgres para
+  `DATABASE_URL`). Para que el `ARG` llegue a los `RUN` se buildea una copia del
+  Dockerfile con `ARG KEY` después de cada `FROM`, como hacen las plataformas de deploy; la
+  copia va a `~/.ldt/tmp/`, no al repo.
+- **El smoke automático es sólo playwright en Python**, porque es lo que ya rompió y lo que
+  el build no prueba solo. Para lo demás está `--smoke`. No se levanta el server: sin las
+  variables reales no arranca, y un falso negativo enseña a ignorar el comando.
 
 ## Windows
 

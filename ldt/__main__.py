@@ -16,9 +16,9 @@ import sys
 
 from ldt import core, menu, ui
 from ldt.browser import cli as browser_cli
-from ldt.cmds import cleanup, db, dev, envck, http, ports, scan, status, test
+from ldt.cmds import cleanup, db, dev, docker, envck, http, ports, scan, status, test
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 EXAMPLES = [
     ("ldt scan", "que es este proyecto y como se levanta"),
@@ -31,6 +31,7 @@ EXAMPLES = [
     ('ldt db --prod q "select count(*) from users"', "la misma, contra produccion a proposito"),
     ("ldt ports 3000 --kill", "liberar un puerto colgado"),
     ("ldt env check", "variables que faltan (sin mostrar valores)"),
+    ("ldt docker check --pr 65", "buildear la imagen de un PR en local antes de mergear"),
     ("ldt cleanup", "cerrar el dev server y el browser al terminar"),
 ]
 
@@ -158,7 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="group")
     parser.set_defaults(func=cmd_welcome)
 
-    for module in (browser_cli, dev, ports, db, http, envck, scan, test, status, cleanup, menu):
+    for module in (browser_cli, dev, ports, db, http, envck, scan, test, docker, status, cleanup, menu):
         module.register(sub)
 
     p = sub.add_parser("help", help="la lista completa de comandos, con ejemplos")

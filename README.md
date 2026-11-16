@@ -71,6 +71,7 @@ Sin PATH, todo se puede invocar como `python /ruta/a/ldt/ldt.py <...>`.
 | `ldt browser` | Navegador real controlable, con sesión que sobrevive entre comandos |
 | `ldt dev` | Server de desarrollo en background + sus logs |
 | `ldt test` | Correr la suite de tests del proyecto |
+| `ldt docker check` | Buildear la imagen Docker en local (el árbol actual o un PR) antes de mergear |
 | `ldt ports` | Qué escucha en cada puerto, y matar al que quedó colgado |
 | `ldt db` | Consultar la base PostgreSQL del proyecto (dev y solo lectura por defecto; `--prod` para producción) |
 | `ldt http` | Requests con salida legible; esperar a que un server levante |
@@ -183,6 +184,31 @@ distintos sin apagarse el server entre sí. Lo de otros proyectos se lista, no s
 siempre son los "huérfanos": Chromiums que quedaron vivos sin archivo de sesión, que nadie
 puede usar. `ldt status` los muestra y `ldt doctor --fix` también los limpia.
 
+### `ldt docker check`
+
+Es común que la CI corra lint y tests pero no construya la imagen: eso lo hace recién la
+plataforma de deploy (Coolify, Render, Railway…). Un cambio que rompe el Dockerfile, o una
+dependencia que necesita algo que la imagen slim no trae, pasa la CI en verde y explota en
+el deploy. `docker check` hace ese build en tu máquina, sin gastar minutos de CI.
+
+```bash
+ldt docker check                            # el árbol de trabajo actual, con lo que no commiteaste
+ldt docker check --pr 65                    # la rama de un PR (ej. de Dependabot), en un worktree aparte
+ldt docker check --build-env DATABASE_URL   # variable de build: sin valor va un placeholder
+ldt docker check --smoke "node -v"          # además, correr un comando adentro de la imagen
+```
+
+Necesitás Docker corriendo y, para `--pr`, que el remoto sea GitHub (baja `refs/pull/N/head`).
+Si la imagen trae playwright para Python, además levanta Chromium adentro, porque el build
+puede pasar y el browser no arrancar. Al terminar borra la imagen (`--keep` para dejarla)
+y el worktree del PR; la salida completa queda en `~/.ldt/logs/<proyecto>-docker[-prN].log`.
+
+**Las variables que el deploy le pasa al build no existen en local.** Un `next build` que
+importa la base al recolectar las rutas falla con "Falta DATABASE_URL". Pasala con
+`--build-env DATABASE_URL`: va un placeholder, porque el build no se conecta. No se leen
+del archivo de entorno del proyecto: ahí suele estar producción y el valor quedaría en la
+cache de build.
+
 ### `ldt db`
 
 ```bash
@@ -206,7 +232,8 @@ en una base que no es dev pide además `--prod`. Si `q` corta en el LIMIT implí
 Todo fuera del repo en el que se trabaja, en `~/.ldt/`: `sessions/` (browsers vivos),
 `daemons/` (registro por pid, para que un Chromium nunca quede invisible), `profiles/`
 (perfiles con login, sólo si se usó `--profile`), `shots/` (screenshots y PDFs), `logs/`
-(salida de los dev servers y de los tests), `procs/` (procesos levantados por `ldt dev`).
+(salida de los dev servers, de los tests y de `docker check`), `worktrees/` (los PRs que
+buildea `docker check`, se borran al terminar), `procs/` (procesos levantados por `ldt dev`).
 
 Se puede mover con la variable de entorno `LDT_HOME`.
 
