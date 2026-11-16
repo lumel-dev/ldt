@@ -17,6 +17,7 @@ ldt browser errors                        errores de JS, de consola y requests f
 ldt browser login <url>                   abrir el Chromium VISIBLE para que el usuario se loguee
 ldt dev start | logs --errors | stop      server de desarrollo en background + sus logs
 ldt test                                  correr la suite de tests del proyecto
+ldt docker check [--pr N]                 buildear la imagen Docker en local (antes de mergear)
 ldt ports 3000 --kill                     ver o liberar un puerto ocupado
 ldt db tables | schema <t> | q "<sql>"    consultar la base PostgreSQL del proyecto
 ldt http get /api/health                  requests contra el server local
@@ -51,6 +52,11 @@ Reglas:
   entorno fijado (su `.venv`, sus versiones) no se prueba con el Chromium de `ldt`: sería
   probar algo distinto de lo que corre de verdad. `ldt browser` es para las UIs; el resto
   de `ldt` (`db`, `ports`, `dev`, `http`, `env`, `scan`) sirve igual en cualquier caso.
+- **Si la CI no construye la imagen Docker, un PR en verde puede romper el deploy.** Antes
+  de mergear un PR (incluidos los de Dependabot o Renovate) que toca el `Dockerfile` o las
+  dependencias de un repo con Dockerfile, correr `ldt docker check --pr <N>`, y no mergear
+  si falla. Si el build pide una variable que el deploy le pasa en build time (ej. "Falta
+  DATABASE_URL"), repetir con `--build-env DATABASE_URL`: no es un error del PR.
 - `ldt db` es read-only por defecto; escribir necesita `--write` **y** que el usuario lo
   autorice, porque la URL del proyecto suele apuntar a una base real. Si el proyecto tiene
   `DATABASE_URL_DEV`, `ldt db` va a dev y producción se pide con `--prod`: **mirar la línea
