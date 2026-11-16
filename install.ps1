@@ -60,6 +60,9 @@ if (-not $NoRule) {
         if ($md.Trim().Length -gt 0) { $md = $md.TrimEnd() + "`n`n" }
         $md = $md + $block + "`n"
     }
+    # Todo a LF, igual que install.sh. Git checkoutea la regla con CRLF en Windows y el
+    # bloque quedaba con otros finales de linea que el resto; esto tambien repara los mezclados.
+    $md = $md -replace "`r`n", "`n"
     # WriteAllText con UTF8Encoding($false): Set-Content -Encoding UTF8 mete BOM en PS 5.1.
     [System.IO.File]::WriteAllText($AgentFile, $md, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "regla: escrita en $AgentFile"
